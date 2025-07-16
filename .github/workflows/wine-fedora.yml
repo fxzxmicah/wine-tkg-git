@@ -1,4 +1,4 @@
-name: Wine Fedora CI
+name: Wine Fedora Linux CI
 
 on:
   schedule:
@@ -15,7 +15,7 @@ jobs:
       - name: Compilation
         run: |
           sudo dnf -y -q upgrade --refresh
-          cd wine-tkg-git 
+          cd wine-tkg-git
           sed -i 's/_NOLIB32="false"/_NOLIB32="wow64"/' wine-tkg-profiles/advanced-customization.cfg
           echo '_ci_build="true"' >> customization.cfg
           touch tarplz
