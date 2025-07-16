@@ -1,0 +1,40 @@
+name: Wine Valve CI
+
+on:
+  workflow_dispatch:
+    inputs:
+      preset:
+        description: Use preset of
+        default: valve
+        options:
+          - valve
+          - valve-exp
+          - valve-exp-bleeding
+        type: choice
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+
+    steps:
+
+      - uses: actions/checkout@v4
+      - name: Compilation
+        run: |
+          sudo apt update
+          sudo apt install aptitude
+          sudo aptitude remove -y '?narrow(?installed,?version(deb.sury.org))'
+          cd wine-tkg-git
+          sed -i 's/LOCAL_PRESET=""/LOCAL_PRESET="${{ inputs.preset }}"/' customization.cfg
+          sed -i 's/_FS_bypass_compositor="false"/_FS_bypass_compositor="true"/' customization.cfg
+          sed -i 's/_proton_fs_hack="false"/_proton_fs_hack="true"/' customization.cfg
+          sed -i 's/_protonify="false"/_protonify="true"/' customization.cfg
+          # sed -i 's/_NOLIB32="false"/_NOLIB32="wow64"/' wine-tkg-profiles/advanced-customization.cfg
+          echo '_ci_build="true"' >> customization.cfg
+          touch tarplz
+          yes|./non-makepkg-build.sh
+      - name: Archive the artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: wine-${{ inputs.preset }}
+          path: wine-tkg-git/non-makepkg-builds
