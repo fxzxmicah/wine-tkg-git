@@ -19,6 +19,8 @@ jobs:
           sudo aptitude remove -y '?narrow(?installed,?version(deb.sury.org))'
           cd wine-tkg-git
           sed -i 's/_NOLIB32="false"/_NOLIB32="wow64"/' wine-tkg-profiles/advanced-customization.cfg
+          sed -i 's/_configure_userargs64=""/_configure_userargs64="--with-pulse --with-gstreamer --without-alsa --without-coreaudio --without-oss --without-ffmpeg --without-sane --without-pcsclite --without-piper --without-vosk --without-netapi --without-capi --without-osmesa --disable-powershell --disable-winemenubuilder --disable-win16"/' wine-tkg-profiles/advanced-customization.cfg
+          sed -i 's/_configure_userargs32=""/_configure_userargs32="--with-pulse --with-gstreamer --without-alsa --without-coreaudio --without-oss --without-ffmpeg --without-sane --without-pcsclite --without-piper --without-vosk --without-netapi --without-capi --without-osmesa --disable-powershell --disable-winemenubuilder --disable-win16"/' wine-tkg-profiles/advanced-customization.cfg
           echo '_ci_build="true"' >> customization.cfg
           touch tarplz
           yes|./non-makepkg-build.sh
