@@ -1,0 +1,270 @@
+diff --git a/dlls/imm32/ime.c b/dlls/imm32/ime.c
+index c4d71856e68..c3995a4eab9 100644
+--- a/dlls/imm32/ime.c
++++ b/dlls/imm32/ime.c
+@@ -562,17 +562,18 @@ BOOL WINAPI ImeProcessKey( HIMC himc, UINT vkey, LPARAM lparam, BYTE *state )
+     return ret;
+ }
+ 
+-UINT WINAPI ImeToAsciiEx( UINT vkey, UINT vsc, BYTE *state, TRANSMSGLIST *msgs, UINT flags, HIMC himc )
++UINT WINAPI ImeToAsciiEx( UINT vkey, LPARAM lparam, BYTE *state, TRANSMSGLIST *msgs, UINT flags, HIMC himc )
+ {
+     COMPOSITIONSTRING *compstr;
+     UINT size, count = 0;
++    WORD vsc = HIWORD( lparam );
+     INPUTCONTEXT *ctx;
+     NTSTATUS status;
+     BOOL key_consumed = TRUE;
+     struct ime_driver_call_params params = {.himc = himc, .state = state};
+ 
+-    TRACE( "vkey %#x, vsc %#x, state %p, msgs %p, flags %#x, himc %p\n",
+-           vkey, vsc, state, msgs, flags, himc );
++    TRACE( "vkey %#x, lparam %#Ix, state %p, msgs %p, flags %#x, himc %p\n",
++           vkey, lparam, state, msgs, flags, himc );
+ 
+     if (!is_ime_hkl( GetKeyboardLayout( 0 ) )) return 0;
+ 
+@@ -590,7 +591,7 @@ UINT WINAPI ImeToAsciiEx( UINT vkey, UINT vsc, BYTE *state, TRANSMSGLIST *msgs,
+ 
+         params.compstr = compstr;
+         params.key_consumed = &key_consumed;
+-        status = NtUserMessageCall( ctx->hWnd, WINE_IME_TO_ASCII_EX, vkey, vsc, &params,
++        status = NtUserMessageCall( ctx->hWnd, WINE_IME_TO_ASCII_EX, vkey, lparam, &params,
+                                     NtUserImeDriverCall, FALSE );
+         size = compstr->dwSize;
+         params.state = NULL;
+@@ -598,7 +599,7 @@ UINT WINAPI ImeToAsciiEx( UINT vkey, UINT vsc, BYTE *state, TRANSMSGLIST *msgs,
+ 
+     if (status == STATUS_NOT_IMPLEMENTED)
+     {
+-        TRANSMSG msg = {.message = vsc & KF_UP ? WM_KEYUP : WM_KEYDOWN, .wParam = vkey, .lParam = vsc};
++        TRANSMSG msg = {.message = vsc & KF_UP ? WM_KEYUP : WM_KEYDOWN, .wParam = vkey, .lParam = lparam};
+         msgs->TransMsg[count++] = msg;
+     }
+     else if (status) WARN( "WINE_IME_TO_ASCII_EX returned unexpected status %#lx\n", status );
+@@ -636,7 +637,7 @@ UINT WINAPI ImeToAsciiEx( UINT vkey, UINT vsc, BYTE *state, TRANSMSGLIST *msgs,
+ 
+         if (!key_consumed)
+         {
+-            TRANSMSG msg = {.message = WM_IME_KEYDOWN, .wParam = vkey, .lParam = vsc};
++            TRANSMSG msg = {.message = WM_IME_KEYDOWN, .wParam = vkey, .lParam = lparam};
+             msgs->TransMsg[count++] = msg;
+         }
+     }
+diff --git a/dlls/imm32/imm.c b/dlls/imm32/imm.c
+index 0b2814da2cb..c8a22b3dc5c 100644
+--- a/dlls/imm32/imm.c
++++ b/dlls/imm32/imm.c
+@@ -64,7 +64,7 @@ struct ime
+     LRESULT (WINAPI *pImeEscape)(HIMC, UINT, void *);
+     BOOL (WINAPI *pImeSelect)(HIMC, BOOL);
+     BOOL (WINAPI *pImeSetActiveContext)(HIMC, BOOL);
+-    UINT (WINAPI *pImeToAsciiEx)(UINT, UINT, const BYTE *, TRANSMSGLIST *, UINT, HIMC);
++    UINT (WINAPI *pImeToAsciiEx)(UINT, LPARAM, const BYTE *, TRANSMSGLIST *, UINT, HIMC);
+     BOOL (WINAPI *pNotifyIME)(HIMC, DWORD, DWORD, DWORD);
+     BOOL (WINAPI *pImeRegisterWord)(const void/*TCHAR*/*, DWORD, const void/*TCHAR*/*);
+     BOOL (WINAPI *pImeUnregisterWord)(const void/*TCHAR*/*, DWORD, const void/*TCHAR*/*);
+@@ -3129,7 +3129,7 @@ BOOL WINAPI ImmTranslateMessage( HWND hwnd, UINT msg, WPARAM wparam, LPARAM lpar
+         vkey = MAKELONG( vkey, chr );
+     }
+ 
+-    count = ime->pImeToAsciiEx( vkey, scan, state, &buffer.list, 0, data->handle );
++    count = ime->pImeToAsciiEx( vkey, lparam, state, &buffer.list, 0, data->handle );
+     if (count >= ARRAY_SIZE(buffer.TransMsg)) return 0;
+ 
+     for (i = 0; i < count; i++) PostMessageW( hwnd, msgs[i].message, msgs[i].wParam, msgs[i].lParam );
+diff --git a/dlls/imm32/tests/ime_test.h b/dlls/imm32/tests/ime_test.h
+index fda8065276d..709ff6c3790 100644
+--- a/dlls/imm32/tests/ime_test.h
++++ b/dlls/imm32/tests/ime_test.h
+@@ -47,7 +47,7 @@ struct ime_functions
+     BOOL (*WINAPI pImeSelect)(HIMC,BOOL);
+     BOOL (*WINAPI pImeSetActiveContext)(HIMC,BOOL);
+     BOOL (*WINAPI pImeSetCompositionString)(HIMC,DWORD,const void *,DWORD,const void *,DWORD);
+-    UINT (*WINAPI pImeToAsciiEx)(UINT,UINT,BYTE *,TRANSMSGLIST *,UINT,HIMC);
++    UINT (*WINAPI pImeToAsciiEx)(UINT,LPARAM,BYTE *,TRANSMSGLIST *,UINT,HIMC);
+     BOOL (*WINAPI pImeUnregisterWord)(const WCHAR *,DWORD,const WCHAR *);
+     BOOL (*WINAPI pNotifyIME)(HIMC,DWORD,DWORD,DWORD);
+     BOOL (*WINAPI pDllMain)(HINSTANCE,DWORD,void *);
+diff --git a/dlls/imm32/tests/ime_wrapper.c b/dlls/imm32/tests/ime_wrapper.c
+index 8d5eb498809..563f43003ca 100644
+--- a/dlls/imm32/tests/ime_wrapper.c
++++ b/dlls/imm32/tests/ime_wrapper.c
+@@ -105,10 +105,10 @@ BOOL WINAPI ImeSetCompositionString( HIMC himc, DWORD index, const void *comp, D
+     return ime_functions.pImeSetCompositionString( himc, index, comp, comp_len, read, read_len );
+ }
+ 
+-UINT WINAPI ImeToAsciiEx( UINT vkey, UINT scan_code, BYTE *key_state, TRANSMSGLIST *msgs, UINT state, HIMC himc )
++UINT WINAPI ImeToAsciiEx( UINT vkey, LPARAM lparam, BYTE *key_state, TRANSMSGLIST *msgs, UINT state, HIMC himc )
+ {
+     if (!ime_functions.pImeToAsciiEx) return 0;
+-    return ime_functions.pImeToAsciiEx( vkey, scan_code, key_state, msgs, state, himc );
++    return ime_functions.pImeToAsciiEx( vkey, lparam, key_state, msgs, state, himc );
+ }
+ 
+ BOOL WINAPI ImeUnregisterWord( const WCHAR *reading, DWORD style, const WCHAR *string )
+diff --git a/dlls/imm32/tests/imm32.c b/dlls/imm32/tests/imm32.c
+index c4d1404f3ea..1fabee1dbbd 100644
+--- a/dlls/imm32/tests/imm32.c
++++ b/dlls/imm32/tests/imm32.c
+@@ -3498,8 +3498,9 @@ static BOOL WINAPI ime_ImeSetCompositionString( HIMC himc, DWORD index, const vo
+     return TRUE;
+ }
+ 
+-static UINT WINAPI ime_ImeToAsciiEx( UINT vkey, UINT vsc, BYTE *state, TRANSMSGLIST *msgs, UINT flags, HIMC himc )
++static UINT WINAPI ime_ImeToAsciiEx( UINT vkey, LPARAM lparam, BYTE *state, TRANSMSGLIST *msgs, UINT flags, HIMC himc )
+ {
++    WORD vsc = HIWORD( lparam );
+     struct ime_call call =
+     {
+         .hkl = GetKeyboardLayout( 0 ), .himc = himc,
+@@ -3508,8 +3509,8 @@ static UINT WINAPI ime_ImeToAsciiEx( UINT vkey, UINT vsc, BYTE *state, TRANSMSGL
+     INPUTCONTEXT *ctx;
+     UINT count = 0;
+ 
+-    ime_trace( "vkey %#x, vsc %#x, state %p, msgs %p, flags %#x, himc %p\n",
+-           vkey, vsc, state, msgs, flags, himc );
++    ime_trace( "vkey %#x, lparam %#Ix, state %p, msgs %p, flags %#x, himc %p\n",
++               vkey, lparam, state, msgs, flags, himc );
+     ime_calls[ime_call_count++] = call;
+ 
+     ok_ne( NULL, msgs, TRANSMSGLIST *, "%p" );
+@@ -7643,6 +7644,7 @@ static void test_ga_na_da(void)
+     INPUTCONTEXT *ctx;
+     HWND hwnd;
+     HIMC himc;
++    imm_msgs *ime_keydown_msg, *keydown_msg;
+     UINT i;
+ 
+     /* this test doesn't work on Win32 / WoW64 */
+@@ -7814,10 +7816,25 @@ static void test_ga_na_da(void)
+     process_messages();
+     todo_wine ok_seq( partial_da_seq );
+ 
++    msg_spy_init( hwnd );
++    msg_spy_flush_msgs();
+     todo_wine ok_ret( 2, ImmProcessKey( hwnd, default_hkl, VK_RETURN, MAKELONG(1, 0x1c), 0 ) );
+     ok_ret( 0, ImmTranslateMessage( hwnd, WM_KEYDOWN, VK_RETURN, MAKELONG(1, 0x1c) ) );
+     process_messages();
+     todo_wine ok_seq( partial_return_seq );
++    for (i = 0, ime_keydown_msg = NULL; (ime_keydown_msg = msg_spy_find_next_msg( WM_IME_KEYDOWN, &i )); )
++        if (ime_keydown_msg->msg.wParam == VK_RETURN) break;
++    ok( !!ime_keydown_msg, "expected a generated WM_IME_KEYDOWN for VK_RETURN\n" );
++    if (ime_keydown_msg)
++        ok( ime_keydown_msg->msg.lParam == MAKELONG( 1, 0x1c ),
++            "got WM_IME_KEYDOWN lParam %#Ix\n", ime_keydown_msg->msg.lParam );
++    for (i = 0, keydown_msg = NULL; (keydown_msg = msg_spy_find_next_msg( WM_KEYDOWN, &i )); )
++        if (keydown_msg->msg.wParam == VK_RETURN) break;
++    ok( !!keydown_msg, "expected a reposted WM_KEYDOWN for VK_RETURN\n" );
++    if (keydown_msg)
++        ok( keydown_msg->msg.lParam == MAKELONG( 1, 0x1c ),
++            "got WM_KEYDOWN lParam %#Ix\n", keydown_msg->msg.lParam );
++    msg_spy_cleanup();
+ 
+ 
+     /* cancelling clears the composition string */
+diff --git a/dlls/win32u/driver.c b/dlls/win32u/driver.c
+index 4d9708f377c..b70de1a1022 100644
+--- a/dlls/win32u/driver.c
++++ b/dlls/win32u/driver.c
+@@ -670,7 +670,7 @@ static void nulldrv_ReleaseKbdTables( const KBDTABLES *tables )
+ {
+ }
+ 
+-static UINT nulldrv_ImeToAsciiEx( UINT vkey, UINT vsc, const BYTE *state, HIMC himc )
++static UINT nulldrv_ImeToAsciiEx( UINT vkey, LPARAM lparam, const BYTE *state, HIMC himc )
+ {
+     return STATUS_NOT_IMPLEMENTED;
+ }
+@@ -1097,9 +1097,9 @@ static void loaderdrv_ReleaseKbdTables( const KBDTABLES *tables )
+     return load_driver()->pReleaseKbdTables( tables );
+ }
+ 
+-static UINT loaderdrv_ImeToAsciiEx( UINT vkey, UINT vsc,const BYTE *state, HIMC himc )
++static UINT loaderdrv_ImeToAsciiEx( UINT vkey, LPARAM lparam, const BYTE *state, HIMC himc )
+ {
+-    return load_driver()->pImeToAsciiEx( vkey, vsc, state, himc );
++    return load_driver()->pImeToAsciiEx( vkey, lparam, state, himc );
+ }
+ 
+ static void loaderdrv_NotifyIMEStatus( HWND hwnd, UINT status )
+diff --git a/dlls/win32u/imm.c b/dlls/win32u/imm.c
+index 1c1cad94b3f..1d80ca0da66 100644
+--- a/dlls/win32u/imm.c
++++ b/dlls/win32u/imm.c
+@@ -668,7 +668,7 @@ LRESULT ime_driver_call( HWND hwnd, enum wine_ime_call call, WPARAM wparam, LPAR
+         {
+             struct imm_thread_data *data = get_imm_thread_data();
+ 
+-            data->ime_process_scan = LOWORD(lparam);
++            data->ime_process_scan = HIWORD(lparam) & 0x1ff;
+             data->ime_process_vkey = LOWORD(wparam);
+             res = user_driver->pImeToAsciiEx( wparam, lparam, params->state, params->himc );
+             data->ime_process_vkey = data->ime_process_scan = 0;
+@@ -683,7 +683,7 @@ LRESULT ime_driver_call( HWND hwnd, enum wine_ime_call call, WPARAM wparam, LPAR
+                 res = STATUS_SUCCESS;
+             }
+ 
+-            TRACE( "processing vkey %#x, scan %#x -> %lu\n", LOWORD(wparam), LOWORD(lparam), res );
++            TRACE( "processing vkey %#x, lparam %#Ix -> %lu\n", LOWORD(wparam), lparam, res );
+             if (res) return res;
+         }
+         return ime_to_tascii_ex( wparam, lparam, params->state, params->compstr, params->key_consumed, params->himc );
+diff --git a/dlls/winemac.drv/keyboard.c b/dlls/winemac.drv/keyboard.c
+index 8cf203c9fb8..3fcbdc633d8 100644
+--- a/dlls/winemac.drv/keyboard.c
++++ b/dlls/winemac.drv/keyboard.c
+@@ -1108,12 +1108,13 @@ void macdrv_hotkey_press(const macdrv_event *event)
+ /***********************************************************************
+  *              ImeToAsciiEx (MACDRV.@)
+  */
+-UINT macdrv_ImeToAsciiEx(UINT vkey, UINT vsc, const BYTE *state, HIMC himc)
++UINT macdrv_ImeToAsciiEx(UINT vkey, LPARAM lparam, const BYTE *state, HIMC himc)
+ {
+     struct macdrv_thread_data *thread_data = macdrv_thread_data();
+     unsigned int flags;
+     int keyc;
+     bool ret;
++    WORD vsc = HIWORD( lparam );
+     BOOL repeat = !!(vsc & KF_REPEAT);
+ 
+     TRACE("himc %p, vkey %#x state %p repeat %u\n",
+diff --git a/dlls/winemac.drv/macdrv.h b/dlls/winemac.drv/macdrv.h
+index 8c8100f38a5..b66108a00fb 100644
+--- a/dlls/winemac.drv/macdrv.h
++++ b/dlls/winemac.drv/macdrv.h
+@@ -158,7 +158,7 @@ extern void macdrv_WindowPosChanged(HWND hwnd, HWND insert_after, HWND owner_hin
+ extern BOOL macdrv_RegisterHotKey(HWND hwnd, UINT mod_flags, UINT vkey);
+ extern void macdrv_UnregisterHotKey(HWND hwnd, UINT modifiers, UINT vkey);
+ extern SHORT macdrv_VkKeyScanEx(WCHAR wChar, HKL hkl);
+-extern UINT macdrv_ImeToAsciiEx(UINT vkey, UINT vsc, const BYTE *state, HIMC himc);
++extern UINT macdrv_ImeToAsciiEx(UINT vkey, LPARAM lparam, const BYTE *state, HIMC himc);
+ extern UINT macdrv_MapVirtualKeyEx(UINT wCode, UINT wMapType, HKL hkl);
+ extern INT macdrv_ToUnicodeEx(UINT virtKey, UINT scanCode, const BYTE *lpKeyState,
+                               LPWSTR bufW, int bufW_size, UINT flags, HKL hkl);
+diff --git a/include/immdev.h b/include/immdev.h
+index 4141e9350c0..f0e69105d7a 100644
+--- a/include/immdev.h
++++ b/include/immdev.h
+@@ -184,7 +184,7 @@ LRESULT WINAPI ImeEscape(HIMC, UINT, LPVOID);
+ BOOL WINAPI ImeProcessKey(HIMC, UINT, LPARAM, const LPBYTE);
+ BOOL WINAPI ImeSelect(HIMC, BOOL);
+ BOOL WINAPI ImeSetActiveContext(HIMC, BOOL);
+-UINT WINAPI ImeToAsciiEx(UINT, UINT, const LPBYTE, LPTRANSMSGLIST, UINT, HIMC);
++UINT WINAPI ImeToAsciiEx(UINT, LPARAM, const LPBYTE, LPTRANSMSGLIST, UINT, HIMC);
+ BOOL WINAPI NotifyIME(HIMC, DWORD, DWORD, DWORD);
+ BOOL WINAPI ImeRegisterWord(LPCWSTR, DWORD, LPCWSTR);
+ BOOL WINAPI ImeUnregisterWord(LPCWSTR, DWORD, LPCWSTR);
+diff --git a/include/wine/gdi_driver.h b/include/wine/gdi_driver.h
+index 97c646d6ec9..b86dca412a8 100644
+--- a/include/wine/gdi_driver.h
++++ b/include/wine/gdi_driver.h
+@@ -372,7 +372,7 @@ struct user_driver_funcs
+     const KBDTABLES *(*pKbdLayerDescriptor)(HKL);
+     void    (*pReleaseKbdTables)(const KBDTABLES *);
+     /* IME functions */
+-    UINT    (*pImeToAsciiEx)(UINT,UINT,const BYTE*,HIMC);
++    UINT    (*pImeToAsciiEx)(UINT,LPARAM,const BYTE*,HIMC);
+     void    (*pNotifyIMEStatus)(HWND,UINT);
+     BOOL    (*pSetIMECompositionRect)(HWND,RECT);
+     /* cursor/icon functions */
